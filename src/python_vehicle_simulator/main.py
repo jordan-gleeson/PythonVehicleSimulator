@@ -13,7 +13,7 @@ Author:     Thor I. Fossen
 import os
 import webbrowser
 import matplotlib.pyplot as plt
-from python_vehicle_simulator.vehicles import *
+from vehicles import *
 from python_vehicle_simulator.lib import *
 
 # Simulation parameters: 

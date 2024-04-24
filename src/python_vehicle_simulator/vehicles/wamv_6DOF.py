@@ -43,9 +43,10 @@ import numpy as np
 import math
 from python_vehicle_simulator.lib.control import PIDpolePlacement
 from python_vehicle_simulator.lib.gnc import Smtrx, Hmtrx, Rzyx, m2c, crossFlowDrag, sat
+from . import utils, pid
 
 # Class Vehicle
-class otter:
+class wamv:
     """
     otter()                                           Propeller step inputs
     otter('headingAutopilot',psi_d,V_c,beta_c,tau_X)  Heading autopilot
@@ -63,7 +64,8 @@ class otter:
         r = 0, 
         V_current = 0, 
         beta_current = 0,
-        tau_X = 120
+        tau_X = 120,
+        des_vel=2
     ):
         
         # Constants
@@ -85,13 +87,13 @@ class otter:
         self.V_c = V_current  # (ocean) current speed (m/s)
         self.beta_c = beta_current * D2R  # current direction (rad)
         self.controlMode = controlSystem
-        self.tauX = tau_X  # surge force (N)
+        self.tauX = tau_X  # surge force (N) | I think this is the extra central thruster
 
         # Initialize the Otter USV model
         self.T_n = 0.1  # propeller time constants (s)
         self.L = 2.0    # length (m)
-        self.B = 1.08   # beam (m)
-        self.nu = np.array([0, 0, 0, 0, 0, 0], float)  # velocity vector p. 22 nu = [u, v, w, p, q, r]
+        self.B = 1.7   # beam (m)
+        self.nu = np.array([des_vel, 0, 0, 0, 0, 0], float)  # velocity vector p. 22 nu = [u, v, w, p, q, r]
         self.u_actual = np.array([0, 0], float)  # propeller revolution states
         self.name = "Otter USV (see 'otter.py' for more details)"
 
@@ -102,8 +104,8 @@ class otter:
         self.dimU = len(self.controls)
 
         # Vehicle parameters
-        m = 55.0                                 # mass (kg)
-        self.mp = 25.0                           # Payload (kg)
+        m = 120.0                                 # mass (kg)
+        self.mp = 0.                           # Payload (kg)
         self.m_total = m + self.mp
         self.rp = np.array([0.05, 0, -0.35], float) # location of payload (m)
         rg = np.array([0.2, 0, -0.2], float)     # CG for hull only (m)
@@ -220,6 +222,18 @@ class otter:
         self.wn_d = 0.5  # desired natural frequency in yaw
         self.zeta_d = 1  # desired relative damping ratio
 
+        # My stuff
+        speed_pid = [200, 0.0008, 0]
+        ang_pid = [200, 0, 0.6]
+        self.vel_pid = pid.PID(speed_pid[0], speed_pid[1], speed_pid[2], clamp=200)
+        self.ang_pid = pid.PID(ang_pid[0], ang_pid[1], ang_pid[2], clamp=20)
+
+        # u_c = self.V_c * math.cos(self.beta_c - eta[5])  # current surge vel. (beta_c = current direction and eta[5] = yaw angle)
+        # v_c = self.V_c * math.sin(self.beta_c - eta[5])  # current sway vel.
+        # nu_c = np.array([u_c, v_c, 0, 0, 0, 0], float)  # current velocity vector
+
+        self.setpoints = [des_vel, self.psi_d]
+
 
     def dynamics(self, eta, nu, u_actual, u_control, sampleTime):
         """
@@ -306,6 +320,7 @@ class otter:
 
         # Forward Euler integration [k+1]
         nu = nu + sampleTime * nu_dot
+        self.nu = nu
         n = n + sampleTime * n_dot
 
         u_actual = np.array(n, float)
@@ -326,7 +341,28 @@ class otter:
 
         return n1, n2
 
+    def set_setpoint(self, vel, ang):
+        self.setpoints = [vel, ang]
 
+    def update(self, eta, dt):
+        velocity = math.sqrt(self.nu[0] ** 2 + self.nu[1] ** 2) 
+        bearing = eta[5]
+        if velocity != 2:
+            pass
+        vel_val = self.vel_pid.update(
+            self.setpoints[0] - velocity, dt)
+
+        ang_dif = utils.heading_error(np.deg2rad(bearing),
+                                        np.deg2rad(self.setpoints[1]))
+        ang_val = self.ang_pid.update(ang_dif, dt)
+
+        return self.thruster_control(vel_val, ang_val)
+
+    def thruster_control(self, vel_val, ang_val):
+        vel_l = (vel_val - ang_val) / 2
+        vel_r = (vel_val + ang_val) / 2
+        return np.array([vel_l, vel_r], float)
+    
     def headingAutopilot(self, eta, nu, sampleTime):
         """
         u = headingAutopilot(eta,nu,sampleTime) is a PID controller
