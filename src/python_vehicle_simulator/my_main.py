@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import matplotlib.pyplot as plt
-from vehicles import wamv_6DOF
+from vehicles import sammi_6DOF
 from python_vehicle_simulator.lib import *
 
 # Simulation parameters: 
 sampleTime = 0.01                  # sample time [seconds]
-time = 5                           # simulation time [seconds]
+time = 10                           # simulation time [seconds]
 N = int(time / sampleTime)         # number of samples
 
 # 3D plot and animation parameters where browser = {firefox,chrome,safari,etc.}
@@ -15,14 +15,14 @@ FPS = 10                            # frames per second (animated GIF)
 filename = '3D_animation.gif'       # data file for animated GIF
 browser = 'safari'                  # browser for visualization of animated GIF
 
-vehicle = wamv_6DOF.wamv('headingAutopilot',0,0,0.0,200.0)  
+vehicle = sammi_6DOF.sammi(r=45, des_vel=0.6, sample_time=sampleTime, nu=np.array([0.6, 0, 0, 0, 0, 0], float))  
 
 def main():    
     DOF = 6                     # degrees of freedom
     t = 0                       # initial simulation time
 
     # Initial state vectors
-    eta = np.array([0, 0, 0, 0, 0, 0], float)    # position/attitude, user editable
+    eta = np.array([0, 0, 0, 0, 0, np.deg2rad(90)], float)    # position/attitude, user editable
     nu = vehicle.nu                              # velocity, defined by vehicle class
     u_actual = vehicle.u_actual                  # actual inputs, defined by vehicle class
     
@@ -36,7 +36,7 @@ def main():
         
         # u_control = vehicle.headingAutopilot(eta,nu,sampleTime)     
         u_control = vehicle.update(eta, sampleTime)
-        
+        # print(u_control)
         # Store simulation data in simData
         signals = np.append( np.append( np.append(eta,nu),u_control), u_actual )
         simData = np.vstack( [simData, signals] ) 

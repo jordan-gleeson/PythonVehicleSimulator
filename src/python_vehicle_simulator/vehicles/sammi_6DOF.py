@@ -42,11 +42,15 @@ Author:     Thor I. Fossen
 import numpy as np
 import math
 from python_vehicle_simulator.lib.control import PIDpolePlacement
-from python_vehicle_simulator.lib.gnc import Smtrx, Hmtrx, Rzyx, m2c, crossFlowDrag, sat
-from . import utils, pid
+from python_vehicle_simulator.lib.gnc import Smtrx, Hmtrx, Rzyx, m2c, crossFlowDrag, sat, Tzyx, attitudeEuler
+try:
+    from . import utils, pid
+except ImportError:
+    import utils, pid
+import timeit
 
 # Class Vehicle
-class wamv:
+class sammi:
     """
     otter()                                           Propeller step inputs
     otter('headingAutopilot',psi_d,V_c,beta_c,tau_X)  Heading autopilot
@@ -65,7 +69,9 @@ class wamv:
         V_current = 0, 
         beta_current = 0,
         tau_X = 120,
-        des_vel=2
+        des_vel=2,
+        sample_time=0.01,
+        nu=np.array([0, 0, 0, 0, 0, 0], float),
     ):
         
         # Constants
@@ -90,10 +96,10 @@ class wamv:
         self.tauX = tau_X  # surge force (N) | I think this is the extra central thruster
 
         # Initialize the Otter USV model
-        self.T_n = 0.1  # propeller time constants (s)
+        self.T_n = sample_time  # propeller time constants (s)
         self.L = 2.0    # length (m)
         self.B = 1.7   # beam (m)
-        self.nu = np.array([des_vel, 0, 0, 0, 0, 0], float)  # velocity vector p. 22 nu = [u, v, w, p, q, r]
+        self.nu = nu  # velocity vector p. 22 nu = [u, v, w, p, q, r]
         self.u_actual = np.array([0, 0], float)  # propeller revolution states
         self.name = "Otter USV (see 'otter.py' for more details)"
 
@@ -108,7 +114,9 @@ class wamv:
         self.mp = 0.                           # Payload (kg)
         self.m_total = m + self.mp
         self.rp = np.array([0.05, 0, -0.35], float) # location of payload (m)
-        rg = np.array([0.2, 0, -0.2], float)     # CG for hull only (m)
+        # p.20 origin is usually chosen to coincide with a point midships in the waterline
+        # rg = np.array([0.2, 0, -0.2], float)     # CG for hull only (m)
+        rg = np.array([0.118, 0, -0.024], float)     # CG for hull only (m) 
         rg = (m * rg + self.mp * self.rp) / (m + self.mp)  # CG corrected for payload
         self.S_rg = Smtrx(rg)  # p. 24
         self.H_rg = Hmtrx(rg)  # Sytem transformation matrix p.669 
@@ -122,10 +130,10 @@ class wamv:
         Umax = 6 * 0.5144   # max forward speed (m/s) Not sure how this was derived
 
         # Data for one pontoon
-        self.B_pont = 0.25  # beam of one pontoon (m)
-        y_pont = 0.395      # distance from centerline to waterline centroid (m)
-        Cw_pont = 0.75      # waterline area coefficient (-)
-        Cb_pont = 0.4       # block coefficient, computed from m = 55 kg
+        self.B_pont = 0.076  # beam of one pontoon (m)
+        y_pont = 0.348      # distance from centerline to waterline centroid (m) (distance between centre of hulls / 2)
+        Cw_pont = 0.98      # waterline area coefficient (-) (see notebook)
+        Cb_pont = 0.785       # block coefficient, computed from m = 55 kg (see notebook)
 
         # Inertia dyadic, volume displacement and draft
         nabla = (m + self.mp) / rho  # volume 
@@ -134,12 +142,12 @@ class wamv:
         self.Ig = Ig_CG - m * self.S_rg @ self.S_rg - self.mp * self.S_rp @ self.S_rp
 
         # Experimental propeller data including lever arms
-        self.l1 = -y_pont  # lever arm, left propeller (m)
-        self.l2 = y_pont  # lever arm, right propeller (m)
-        self.k_pos = 0.02216 / 2  # Positive Bollard, one propeller
-        self.k_neg = 0.01289 / 2  # Negative Bollard, one propeller
-        self.n_max = math.sqrt((0.5 * 24.4 * self.g) / self.k_pos)  # max. prop. rev.
-        self.n_min = -math.sqrt((0.5 * 13.6 * self.g) / self.k_neg) # min. prop. rev.
+        # self.k_pos = 0.43285684  # Calculated at 12V, 1800 PWM (max 1900) (see notebook)
+        self.k_pos = 24.12 / (rho * (0.076 ** 4) * abs(40.93) * 40.93) 
+        # self.k_neg = 0.34279189  # Calculated at 12V, 1200 PWM (min 1100) (see notebook)
+        self.k_neg = 19.12 / (rho * (0.076 ** 4) * abs(40.95) * 40.95) 
+        self.n_max = 313.635667  # max. prop. rev. (rad/s)
+        self.n_min = -311.645991  # min. prop. rev. (rad/s)
 
         # MRB_CG = [ (m+mp) * I3  O3      (Fossen 2021, Chapter 3) . 64
         #               O3       Ig ]
@@ -149,6 +157,7 @@ class wamv:
         MRB = self.H_rg.T @ MRB_CG @ self.H_rg
 
         # Hydrodynamic added mass (best practice) p. 116/147
+        # Discussion on symettry and 3DOF on p. 147!
         Xudot = -0.1 * m
         Yvdot = -1.5 * m
         Zwdot = -1.0 * m
@@ -196,7 +205,7 @@ class wamv:
         w5 = math.sqrt(G55 / self.M[4, 4])  # p. 83
 
         # Linear damping terms (hydrodynamic derivatives) p. 150/119
-        Xu = -24.4 *self. g / Umax   # specified using the maximum speed
+        Xu = -24.4 * self.g / Umax   # specified using the maximum speed
         Yv = -self.M[1, 1]  / T_sway # specified using the time constant in sway
         Zw = -2 * 0.3 * w3 * self.M[2, 2]  # specified using relative damping
         Kp = -2 * 0.2 * w4 * self.M[3, 3]
@@ -206,8 +215,8 @@ class wamv:
         self.D = -np.diag([Xu, Yv, Zw, Kp, Mq, Nr])  # Linear damping for suface vessels p. 150
 
         # Propeller configuration/input matrix
-        B = self.k_pos * np.array([[1, 1], [-self.l1, -self.l2]])  # p. 226
-        self.Binv = np.linalg.inv(B)
+        # B = self.k_pos * np.array([[1, 1], [-self.l1, -self.l2]])  # p. 226
+        # self.Binv = np.linalg.inv(B)
 
         # Heading autopilot
         self.e_int = 0  # integral state
@@ -223,16 +232,16 @@ class wamv:
         self.zeta_d = 1  # desired relative damping ratio
 
         # My stuff
-        speed_pid = [200, 0.0008, 0]
-        ang_pid = [200, 0, 0.6]
-        self.vel_pid = pid.PID(speed_pid[0], speed_pid[1], speed_pid[2], clamp=200)
-        self.ang_pid = pid.PID(ang_pid[0], ang_pid[1], ang_pid[2], clamp=20)
+        speed_pid = [200, 200, 0]
+        ang_pid = [150, 0.01, 120]
+        self.vel_pid = pid.PID(speed_pid[0], speed_pid[1], speed_pid[2], clamp=313)
+        self.ang_pid = pid.PID(ang_pid[0], ang_pid[1], ang_pid[2], clamp=313)
 
         # u_c = self.V_c * math.cos(self.beta_c - eta[5])  # current surge vel. (beta_c = current direction and eta[5] = yaw angle)
         # v_c = self.V_c * math.sin(self.beta_c - eta[5])  # current sway vel.
         # nu_c = np.array([u_c, v_c, 0, 0, 0, 0], float)  # current velocity vector
 
-        self.setpoints = [des_vel, self.psi_d]
+        self.setpoints = [des_vel, self.ref]
 
 
     def dynamics(self, eta, nu, u_actual, u_control, sampleTime):
@@ -280,15 +289,33 @@ class wamv:
         # Note Otter has a thruster on each pontoon plus a big one in the middle! p. 229
         thrust = np.zeros(2)
         for i in range(0, 2):
-
+            before = n[i]
             n[i] = sat(n[i], self.n_min, self.n_max)  # saturation, physical limits
+            
 
-            if n[i] > 0:  # positive thrust
-                thrust[i] = self.k_pos * n[i] * abs(n[i])
+            if n[i] > 0:  # positive thrust (Why are there different K_ts for forward/reverse)
+                # thrust[i] = self.k_pos * n[i] * abs(n[i])  # p. 219 eq. 9.7 but removes rho and D^4
+                thrust[i] = 997 * np.power(0.076, 4) * self.k_pos * abs(n[i]) * n[i] * 2
+                # thrust[i] = self.k_pos * abs(n[i]) * n[i] * 2
             else:  # negative thrust
-                thrust[i] = self.k_neg * n[i] * abs(n[i])
-
+                # thrust[i] = self.k_neg * n[i] * abs(n[i])
+                thrust[i] = 997 * np.power(0.076, 4) * self.k_neg * abs(n[i]) * n[i] * 2
+                # thrust[i] = self.k_neg * abs(n[i]) * n[i] * 2
         # Control forces and moments
+        # self.l1 = -1
+        # self.l2 = 1
+        # tau = np.array(
+        #     [
+        #         thrust[0] + thrust[1],
+        #         0,
+        #         0,
+        #         0,
+        #         0,
+        #         -self.l1 * thrust[0] - self.l2 * thrust[1],  # This term is for how the thrust affects yaw? p. 11
+        #     ]
+        # )
+        # Mousazadeh et al. thrust (Eq. 5)
+        thrust_distance = 1.4  # distance between the two thrusters (m)
         tau = np.array(
             [
                 thrust[0] + thrust[1],
@@ -296,7 +323,7 @@ class wamv:
                 0,
                 0,
                 0,
-                -self.l1 * thrust[0] - self.l2 * thrust[1],  # This term is for how the thrust affects yaw? p. 11
+                (thrust[0] - thrust[1]) * thrust_distance / 2
             ]
         )
 
@@ -324,7 +351,7 @@ class wamv:
         n = n + sampleTime * n_dot
 
         u_actual = np.array(n, float)
-
+        # print(u_control)
         return nu, u_actual
 
 
@@ -347,20 +374,23 @@ class wamv:
     def update(self, eta, dt):
         velocity = math.sqrt(self.nu[0] ** 2 + self.nu[1] ** 2) 
         bearing = eta[5]
-        if velocity != 2:
-            pass
+
         vel_val = self.vel_pid.update(
             self.setpoints[0] - velocity, dt)
 
-        ang_dif = utils.heading_error(np.deg2rad(bearing),
-                                        np.deg2rad(self.setpoints[1]))
+        ang_dif = utils.heading_error(bearing,
+                                      np.deg2rad(self.setpoints[1]))
         ang_val = self.ang_pid.update(ang_dif, dt)
 
+        if np.rad2deg(bearing) > 90:
+            pass
+
         return self.thruster_control(vel_val, ang_val)
+        # return np.array([313, 313], float)
 
     def thruster_control(self, vel_val, ang_val):
-        vel_l = (vel_val - ang_val) / 2
-        vel_r = (vel_val + ang_val) / 2
+        vel_r = (vel_val - ang_val) / 2
+        vel_l = (vel_val + ang_val) / 2
         return np.array([vel_l, vel_r], float)
     
     def headingAutopilot(self, eta, nu, sampleTime):
@@ -411,7 +441,7 @@ class wamv:
             sampleTime,
         )
 
-        [n1, n2] = self.controlAllocation(tau_X, tau_N)
+        [n1, n2] = self.controlAllocation(tau_X, tau_N)  # tau_x is the forward-only thruster
         u_control = np.array([n1, n2], float)
 
         return u_control
@@ -434,3 +464,74 @@ class wamv:
         u_control = np.array([n1, n2], float)
 
         return u_control
+
+def simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time=0.01, tracking=["final"]):
+    sample_count = int(time/sample_time)
+    vehicle = sammi(r=des_ang, des_vel=des_vel, sample_time=sample_time, nu=initial_velocities)
+    eta = initial_state
+    nu = vehicle.nu
+    u_actual = vehicle.u_actual
+    if "eta" in tracking:
+        eta_hist = np.zeros((sample_count, 6))
+    if "nu" in tracking:
+        nu_hist = np.zeros((sample_count, 6))
+    if "u_actual" in tracking:
+        u_actual_hist = np.zeros((sample_count, 2))
+
+    for i in range(0, sample_count):
+        t = i * sample_time
+        u_control = vehicle.update(eta, sample_time)
+        [nu, u_actual] = vehicle.dynamics(eta, nu, u_actual, u_control, sample_time)
+        eta = attitudeEuler(eta, nu, sample_time)
+
+        if "eta" in tracking:
+            eta_hist[i] = eta
+        if "nu" in tracking:
+            nu_hist[i] = nu
+        if "u_actual" in tracking:
+            u_actual_hist[i] = u_actual
+    
+    return_data = []
+    if "eta" in tracking:
+        return_data.append(eta_hist)
+    if "nu" in tracking:
+        return_data.append(nu_hist)
+    if "u_actual" in tracking:
+        return_data.append(u_actual_hist)
+    if "final" in tracking:
+        return_data.append([eta, nu, u_actual])
+    return return_data
+
+if __name__ == "__main__":
+    try:
+        timer = input("Do you want to time the simulation? (y/n): ")
+        if timer == "n":
+            des_vel = float(input("Enter a desired velocity: "))
+            des_ang = float(input("Enter a desired angle: "))
+            time = float(input("Enter a time for the simulation: "))
+        elif timer == "y":
+            des_vel = 0.5
+            des_ang = 0
+            time = 5
+        else:
+            print("Invalid input. Please enter 'y' or 'n'.")
+            exit()
+    except ValueError:
+        print("Invalid input. Please enter valid numeric values for desired velocity and angle.")
+        exit()
+
+    initial_state = np.array([0, 0, 0, 0, 0, np.deg2rad(90)], float)
+    initial_velocities = np.array([0, 0, 0, 0, 0, 0], float)
+    sample_time = 0.01
+    tracking = ["final"]
+    if timer == "y":
+        iterations = 1000
+        total_time = timeit.timeit("simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking)", setup="from __main__ import simulate, initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking", number=iterations)
+        print("Average time for {} iterations: ".format(iterations), total_time/iterations)
+        print("Average time per simulation second: ", (total_time/iterations)/time)
+    else:
+        data = simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking)
+        [eta, nu, u_actual] = data[0]
+        print("Simulation complete", eta, nu, u_actual)
+
+
