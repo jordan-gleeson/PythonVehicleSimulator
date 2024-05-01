@@ -93,7 +93,6 @@ class sammi:
         self.V_c = V_current  # (ocean) current speed (m/s)
         self.beta_c = beta_current * D2R  # current direction (rad)
         self.controlMode = controlSystem
-        self.tauX = tau_X  # surge force (N) | I think this is the extra central thruster
 
         # Initialize the Otter USV model
         self.T_n = sample_time  # propeller time constants (s)
@@ -101,7 +100,7 @@ class sammi:
         self.B = 1.7   # beam (m)
         self.nu = nu  # velocity vector p. 22 nu = [u, v, w, p, q, r]
         self.u_actual = np.array([0, 0], float)  # propeller revolution states
-        self.name = "Otter USV (see 'otter.py' for more details)"
+        self.name = "SAMMI USV"
 
         self.controls = [
             "Left propeller shaft speed (rad/s)",
@@ -114,9 +113,7 @@ class sammi:
         self.mp = 0.                           # Payload (kg)
         self.m_total = m + self.mp
         self.rp = np.array([0.05, 0, -0.35], float) # location of payload (m)
-        # p.20 origin is usually chosen to coincide with a point midships in the waterline
-        # rg = np.array([0.2, 0, -0.2], float)     # CG for hull only (m)
-        rg = np.array([0.118, 0, -0.024], float)     # CG for hull only (m) 
+        rg = np.array([0.118, 0, -0.024], float)     # CG for hull only (m) (pg. 20)
         rg = (m * rg + self.mp * self.rp) / (m + self.mp)  # CG corrected for payload
         self.S_rg = Smtrx(rg)  # p. 24
         self.H_rg = Hmtrx(rg)  # Sytem transformation matrix p.669 
@@ -127,7 +124,7 @@ class sammi:
         R66 = 0.25 * self.L
         T_sway = 1.0        # time constant in sway (s) p. 124 (2011)
         T_yaw = 1.0         # time constant in yaw (s)
-        Umax = 6 * 0.5144   # max forward speed (m/s) Not sure how this was derived
+        Umax = 1.5   # max forward speed (m/s)
 
         # Data for one pontoon
         self.B_pont = 0.076  # beam of one pontoon (m)
@@ -142,10 +139,8 @@ class sammi:
         self.Ig = Ig_CG - m * self.S_rg @ self.S_rg - self.mp * self.S_rp @ self.S_rp
 
         # Experimental propeller data including lever arms
-        # self.k_pos = 0.43285684  # Calculated at 12V, 1800 PWM (max 1900) (see notebook)
-        self.k_pos = 24.12 / (rho * (0.076 ** 4) * abs(40.93) * 40.93) 
-        # self.k_neg = 0.34279189  # Calculated at 12V, 1200 PWM (min 1100) (see notebook)
-        self.k_neg = 19.12 / (rho * (0.076 ** 4) * abs(40.95) * 40.95) 
+        self.k_pos = 24.12 / (rho * (0.076 ** 4) * abs(40.93) * 40.93)  # Calculated at 12V, 1800 PWM (max 1900) (see notebook)
+        self.k_neg = 19.12 / (rho * (0.076 ** 4) * abs(40.95) * 40.95)  # Calculated at 12V, 1200 PWM (min 1100) (see notebook)
         self.n_max = 313.635667  # max. prop. rev. (rad/s)
         self.n_min = -311.645991  # min. prop. rev. (rad/s)
 
@@ -179,7 +174,7 @@ class sammi:
             * self.L
             * self.B_pont ** 3
             * (6 * Cw_pont ** 3 / ((1 + Cw_pont) * (1 + 2 * Cw_pont)))
-            + 2 * Aw_pont * y_pont ** 2
+            + 2 * Aw_pont * y_pont ** 2  # Where does this addition come from??
         )  # Second moment of area transverse p. 80 (or area moment of inertia)
         I_L = 0.8 * 2 * (1 / 12) * self.B_pont * self.L ** 3  # Second moment of area longitudinal p. 81 (or area moment of inertia)
         KB = (1 / 3) * (5 * self.T / 2 - 0.5 * nabla / (self.L * self.B_pont))  # The distance between the keel line and the centre of buoyancy p. 80
@@ -214,33 +209,16 @@ class sammi:
 
         self.D = -np.diag([Xu, Yv, Zw, Kp, Mq, Nr])  # Linear damping for suface vessels p. 150
 
-        # Propeller configuration/input matrix
-        # B = self.k_pos * np.array([[1, 1], [-self.l1, -self.l2]])  # p. 226
-        # self.Binv = np.linalg.inv(B)
-
         # Heading autopilot
         self.e_int = 0  # integral state
         self.wn = 2.5   # PID pole placement
         self.zeta = 1
 
-        # Reference model
-        self.r_max = 10 * math.pi / 180  # maximum yaw rate
-        self.psi_d = 0   # angle, angular rate and angular acc. states
-        self.r_d = 0
-        self.a_d = 0
-        self.wn_d = 0.5  # desired natural frequency in yaw
-        self.zeta_d = 1  # desired relative damping ratio
-
-        # My stuff
+        # SAMMI Control
         speed_pid = [200, 200, 0]
         ang_pid = [150, 0.01, 120]
         self.vel_pid = pid.PID(speed_pid[0], speed_pid[1], speed_pid[2], clamp=313)
         self.ang_pid = pid.PID(ang_pid[0], ang_pid[1], ang_pid[2], clamp=313)
-
-        # u_c = self.V_c * math.cos(self.beta_c - eta[5])  # current surge vel. (beta_c = current direction and eta[5] = yaw angle)
-        # v_c = self.V_c * math.sin(self.beta_c - eta[5])  # current sway vel.
-        # nu_c = np.array([u_c, v_c, 0, 0, 0, 0], float)  # current velocity vector
-
         self.setpoints = [des_vel, self.ref]
 
 
@@ -289,31 +267,12 @@ class sammi:
         # Note Otter has a thruster on each pontoon plus a big one in the middle! p. 229
         thrust = np.zeros(2)
         for i in range(0, 2):
-            before = n[i]
             n[i] = sat(n[i], self.n_min, self.n_max)  # saturation, physical limits
-            
-
             if n[i] > 0:  # positive thrust (Why are there different K_ts for forward/reverse)
-                # thrust[i] = self.k_pos * n[i] * abs(n[i])  # p. 219 eq. 9.7 but removes rho and D^4
                 thrust[i] = 997 * np.power(0.076, 4) * self.k_pos * abs(n[i]) * n[i] * 2
-                # thrust[i] = self.k_pos * abs(n[i]) * n[i] * 2
             else:  # negative thrust
-                # thrust[i] = self.k_neg * n[i] * abs(n[i])
                 thrust[i] = 997 * np.power(0.076, 4) * self.k_neg * abs(n[i]) * n[i] * 2
-                # thrust[i] = self.k_neg * abs(n[i]) * n[i] * 2
         # Control forces and moments
-        # self.l1 = -1
-        # self.l2 = 1
-        # tau = np.array(
-        #     [
-        #         thrust[0] + thrust[1],
-        #         0,
-        #         0,
-        #         0,
-        #         0,
-        #         -self.l1 * thrust[0] - self.l2 * thrust[1],  # This term is for how the thrust affects yaw? p. 11
-        #     ]
-        # )
         # Mousazadeh et al. thrust (Eq. 5)
         thrust_distance = 1.4  # distance between the two thrusters (m)
         tau = np.array(
@@ -351,22 +310,7 @@ class sammi:
         n = n + sampleTime * n_dot
 
         u_actual = np.array(n, float)
-        # print(u_control)
         return nu, u_actual
-
-
-    def controlAllocation(self, tau_X, tau_N):
-        """
-        [n1, n2] = controlAllocation(tau_X, tau_N)
-        """
-        tau = np.array([tau_X, tau_N])  # tau = B * u_alloc
-        u_alloc = np.matmul(self.Binv, tau)  # u_alloc = inv(B) * tau
-
-        # u_alloc = abs(n) * n --> n = sign(u_alloc) * sqrt(u_alloc)
-        n1 = np.sign(u_alloc[0]) * math.sqrt(abs(u_alloc[0]))
-        n2 = np.sign(u_alloc[1]) * math.sqrt(abs(u_alloc[1]))
-
-        return n1, n2
 
     def set_setpoint(self, vel, ang):
         self.setpoints = [vel, ang]
@@ -392,78 +336,6 @@ class sammi:
         vel_r = (vel_val - ang_val) / 2
         vel_l = (vel_val + ang_val) / 2
         return np.array([vel_l, vel_r], float)
-    
-    def headingAutopilot(self, eta, nu, sampleTime):
-        """
-        u = headingAutopilot(eta,nu,sampleTime) is a PID controller
-        for automatic heading control based on pole placement.
-
-        tau_N = (T/K) * a_d + (1/K) * rd
-               - Kp * ( ssa( psi-psi_d ) + Td * (r - r_d) + (1/Ti) * z )
-
-        """
-        psi = eta[5]  # yaw angle
-        r = nu[5]  # yaw rate
-        e_psi = psi - self.psi_d  # yaw angle tracking error
-        e_r = r - self.r_d  # yaw rate tracking error
-        psi_ref = self.ref * math.pi / 180  # yaw angle setpoint
-
-        wn = self.wn  # PID natural frequency
-        zeta = self.zeta  # PID natural relative damping factor
-        wn_d = self.wn_d  # reference model natural frequency
-        zeta_d = self.zeta_d  # reference model relative damping factor
-
-        m = 41.4  # moment of inertia in yaw including added mass
-        T = 1
-        K = T / m
-        d = 1 / K
-        k = 0
-
-        # PID feedback controller with 3rd-order reference model
-        tau_X = self.tauX
-
-        [tau_N, self.e_int, self.psi_d, self.r_d, self.a_d] = PIDpolePlacement(
-            self.e_int,
-            e_psi,
-            e_r,
-            self.psi_d,
-            self.r_d,
-            self.a_d,
-            m,
-            d,
-            k,
-            wn_d,
-            zeta_d,
-            wn,
-            zeta,
-            psi_ref,
-            self.r_max,
-            sampleTime,
-        )
-
-        [n1, n2] = self.controlAllocation(tau_X, tau_N)  # tau_x is the forward-only thruster
-        u_control = np.array([n1, n2], float)
-
-        return u_control
-
-
-    def stepInput(self, t):
-        """
-        u = stepInput(t) generates propeller step inputs.
-        """
-        n1 = 100  # rad/s
-        n2 = 80
-
-        if t > 30 and t < 100:
-            n1 = 80
-            n2 = 120
-        else:
-            n1 = 0
-            n2 = 0
-
-        u_control = np.array([n1, n2], float)
-
-        return u_control
 
 def simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time=0.01, tracking=["final"]):
     sample_count = int(time/sample_time)
