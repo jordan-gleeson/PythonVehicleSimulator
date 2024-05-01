@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import matplotlib.pyplot as plt
-from vehicles import sammi_6DOF
-from python_vehicle_simulator.lib import *
+from vehicles import sammi_6DOF, sammi_3DOF
+# from python_vehicle_simulator.lib import *
+from lib.plotTimeSeries import *
 
 # Simulation parameters: 
 sampleTime = 0.01                  # sample time [seconds]
@@ -15,14 +16,17 @@ FPS = 10                            # frames per second (animated GIF)
 filename = '3D_animation.gif'       # data file for animated GIF
 browser = 'safari'                  # browser for visualization of animated GIF
 
-vehicle = sammi_6DOF.sammi(r=45, des_vel=0.6, sample_time=sampleTime, nu=np.array([0.6, 0, 0, 0, 0, 0], float))  
-
 def main():    
-    DOF = 6                     # degrees of freedom
+    DOF = 3                     # degrees of freedom
     t = 0                       # initial simulation time
 
     # Initial state vectors
-    eta = np.array([0, 0, 0, 0, 0, np.deg2rad(90)], float)    # position/attitude, user editable
+    if DOF == 6:
+        vehicle = sammi_6DOF.sammi(r=45, des_vel=0.6, sample_time=sampleTime, nu=np.array([0, 0, 0, 0, 0, 0], float)) 
+        eta = np.array([0, 0, 0, 0, 0, 0], float)    # position/attitude, user editable
+    if DOF == 3:
+        vehicle = sammi_3DOF.sammi(r=45, des_vel=0.6, sample_time=sampleTime, nu=np.array([0, 0, 0], float))
+        eta = np.array([0, 0, 0], float)
     nu = vehicle.nu                              # velocity, defined by vehicle class
     u_actual = vehicle.u_actual                  # actual inputs, defined by vehicle class
     
@@ -43,13 +47,16 @@ def main():
 
         # Propagate vehicle and attitude dynamics
         [nu, u_actual]  = vehicle.dynamics(eta,nu,u_actual,u_control,sampleTime)
-        eta = attitudeEuler(eta,nu,sampleTime)
+        eta = sammi_3DOF.attitudeEuler(eta,nu,sampleTime)
+        if eta[1] != 0:
+            pass
+        print(eta)
 
     # Store simulation time vector
     simTime = np.arange(start=0, stop=t+sampleTime, step=sampleTime)[:, None]
     
-    plotVehicleStates(simTime, simData, 1)                    
-    plotControls(simTime, simData, vehicle, 2)
+    plotVehicleStates(simTime, simData, 1, DOF=DOF)                    
+    plotControls(simTime, simData, vehicle, 2, DOF=DOF)
     # plot3D(simData, numDataPoints, FPS, filename, 3)
     
     plt.show()

@@ -32,31 +32,44 @@ def cm2inch(value):  # inch to cm
 
 # plotVehicleStates(simTime, simData, figNo) plots the 6-DOF vehicle
 # position/attitude and velocities versus time in figure no. figNo
-def plotVehicleStates(simTime, simData, figNo):
-
+def plotVehicleStates(simTime, simData, figNo, DOF=6):
     # Time vector
     t = simTime
 
     # State vectors
-    x = simData[:, 0]
-    y = simData[:, 1]
-    z = simData[:, 2]
-    phi = R2D(ssa(simData[:, 3]))
-    theta = R2D(ssa(simData[:, 4]))
-    psi = R2D(ssa(simData[:, 5]))
-    u = simData[:, 6]
-    v = simData[:, 7]
-    w = simData[:, 8]
-    p = R2D(simData[:, 9])
-    q = R2D(simData[:, 10])
-    r = R2D(simData[:, 11])
+    if DOF == 6:
+        x = simData[:, 0]
+        y = simData[:, 1]
+        z = simData[:, 2]
+        phi = R2D(ssa(simData[:, 3]))
+        theta = R2D(ssa(simData[:, 4]))
+        psi = R2D(ssa(simData[:, 5]))
+        u = simData[:, 6]
+        v = simData[:, 7]
+        w = simData[:, 8]
+        p = R2D(simData[:, 9])
+        q = R2D(simData[:, 10])
+        r = R2D(simData[:, 11])
+    elif DOF == 3:
+        x = simData[:, 0]
+        y = simData[:, 1]
+        psi = R2D(ssa(simData[:, 2]))
+        u = simData[:, 3]
+        v = simData[:, 4]
+        r = R2D(simData[:, 5])
 
     # Speed
-    U = np.sqrt(np.multiply(u, u) + np.multiply(v, v) + np.multiply(w, w))
+    if DOF == 6:
+        U = np.sqrt(np.multiply(u, u) + np.multiply(v, v) + np.multiply(w, w))
+    elif DOF == 3:
+        U = np.sqrt(np.multiply(u, u) + np.multiply(v, v))
 
+    if DOF == 6:
+        alpha_c = R2D(ssa(np.arctan2(w,u)))   # flight path angle
+        chi = R2D(ssa(simData[:, 5] + np.arctan2(v, u)))  # course angle, chi=psi+beta_c
+    else:
+        chi = R2D(ssa(simData[:, 2] + np.arctan2(v, u)))  # course angle, chi=psi+beta_c
     beta_c  = R2D(ssa(np.arctan2(v,u)))   # crab angle, beta_c    
-    alpha_c = R2D(ssa(np.arctan2(w,u)))   # flight path angle
-    chi = R2D(ssa(simData[:, 5] + np.arctan2(v, u)))  # course angle, chi=psi+beta_c
 
     # Plots
     plt.figure(
@@ -69,17 +82,19 @@ def plotVehicleStates(simTime, simData, figNo):
     plt.legend(["North-East positions (m)"], fontsize=legendSize)
     plt.grid()
 
-    plt.subplot(3, 3, 2)
-    plt.plot(t, z)
-    plt.legend(["Depth (m)"], fontsize=legendSize)
-    plt.grid()
+    if DOF == 6:
+        plt.subplot(3, 3, 2)
+        plt.plot(t, z)
+        plt.legend(["Depth (m)"], fontsize=legendSize)
+        plt.grid()
 
     plt.title("Vehicle states", fontsize=12)
 
-    plt.subplot(3, 3, 3)
-    plt.plot(t, phi, t, theta)
-    plt.legend(["Roll angle (deg)", "Pitch angle (deg)"], fontsize=legendSize)
-    plt.grid()
+    if DOF == 6:
+        plt.subplot(3, 3, 3)
+        plt.plot(t, phi, t, theta)
+        plt.legend(["Roll angle (deg)", "Pitch angle (deg)"], fontsize=legendSize)
+        plt.grid()
 
     plt.subplot(3, 3, 4)
     plt.plot(t, U)
@@ -91,27 +106,32 @@ def plotVehicleStates(simTime, simData, figNo):
     plt.legend(["Course angle (deg)"], fontsize=legendSize)
     plt.grid()
 
-    plt.subplot(3, 3, 6)
-    plt.plot(t, theta, t, alpha_c)
-    plt.legend(["Pitch angle (deg)", "Flight path angle (deg)"], fontsize=legendSize)
-    plt.grid()
+    if DOF == 6:
+        plt.subplot(3, 3, 6)
+        plt.plot(t, theta, t, alpha_c)
+        plt.legend(["Pitch angle (deg)", "Flight path angle (deg)"], fontsize=legendSize)
+        plt.grid()
 
     plt.subplot(3, 3, 7)
-    plt.plot(t, u, t, v, t, w)
+    if DOF == 6:
+        plt.plot(t, u, t, v, t, w)
+        legend_text = ["Surge velocity (m/s)", "Sway velocity (m/s)", "Heave velocity (m/s)"]
+    elif DOF == 3:
+        plt.plot(t, u, t, v)
+        legend_text = ["Surge velocity (m/s)", "Sway velocity (m/s)"]
     plt.xlabel("Time (s)", fontsize=12)
-    plt.legend(
-        ["Surge velocity (m/s)", "Sway velocity (m/s)", "Heave velocity (m/s)"],
-        fontsize=legendSize,
-    )
+    plt.legend(legend_text, fontsize=legendSize,)
     plt.grid()
 
     plt.subplot(3, 3, 8)
-    plt.plot(t, p, t, q, t, r)
+    if DOF == 6:
+        plt.plot(t, p, t, q, t, r)
+        legend_text = ["Roll rate (deg/s)", "Pitch rate (deg/s)", "Yaw rate (deg/s)"]
+    elif DOF == 3:
+        plt.plot(t, r)
+        legend_text = ["Yaw rate (deg/s)"]
     plt.xlabel("Time (s)", fontsize=12)
-    plt.legend(
-        ["Roll rate (deg/s)", "Pitch rate (deg/s)", "Yaw rate (deg/s)"],
-        fontsize=legendSize,
-    )
+    plt.legend(legend_text, fontsize=legendSize)
     plt.grid()
 
     plt.subplot(3, 3, 9)
@@ -123,9 +143,7 @@ def plotVehicleStates(simTime, simData, figNo):
 
 # plotControls(simTime, simData) plots the vehicle control inputs versus time
 # in figure no. figNo
-def plotControls(simTime, simData, vehicle, figNo):
-
-    DOF = 6
+def plotControls(simTime, simData, vehicle, figNo, DOF=6):
 
     # Time vector
     t = simTime
