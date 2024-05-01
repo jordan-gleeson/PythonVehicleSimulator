@@ -41,7 +41,6 @@ Author:     Thor I. Fossen
 """
 import numpy as np
 import math
-from python_vehicle_simulator.lib.gnc import Smtrx, m2c, sat
 try:
     from . import utils, pid
 except ImportError:
@@ -366,6 +365,49 @@ def attitudeEuler(eta,nu,sampleTime):
     # eta[3:6] = eta[3:6] + sampleTime * v_dot
 
     return eta
+
+def Smtrx(a):
+    """
+    S = Smtrx(a) computes the 3x3 vector skew-symmetric matrix S(a) = -S(a)'.
+    The cross product satisfies: a x b = S(a)b. 
+    """
+ 
+    S = np.array([ 
+        [ 0, -a[2], a[1] ],
+        [ a[2],   0,     -a[0] ],
+        [-a[1],   a[0],   0 ]  ])
+
+    return S
+
+def m2c(M, nu):
+    """
+    C = m2c(M,nu) computes the Coriolis and centripetal matrix C from the
+    mass matrix M and generalized velocity vector nu (Fossen 2021, Ch. 3)
+    """
+
+    M = 0.5 * (M + M.T)     # systematization of the inertia matrix
+
+    #C = [ 0             0            -M(2,2)*nu(2)-M(2,3)*nu(3)
+    #      0             0             M(1,1)*nu(1)
+    #      M(2,2)*nu(2)+M(2,3)*nu(3)  -M(1,1)*nu(1)          0  ]    
+    C = np.zeros( (3,3) ) 
+    C[0,2] = -M[1,1] * nu[1] - M[1,2] * nu[2]
+    C[1,2] =  M[0,0] * nu[0] 
+    C[2,0] = -C[0,2]       
+    C[2,1] = -C[1,2]
+        
+    return C
+
+def sat(x, x_min, x_max):
+    """
+    x = sat(x,x_min,x_max) saturates a signal x such that x_min <= x <= x_max
+    """
+    if x > x_max:
+        x = x_max 
+    elif x < x_min:
+        x = x_min
+        
+    return x    
 
 if __name__ == "__main__":
     try:
