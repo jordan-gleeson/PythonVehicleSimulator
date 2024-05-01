@@ -115,11 +115,8 @@ class sammi:
         self.rg = np.array([0.118, 0, -0.024], float)     # CG for hull only (m) (pg. 20) TODO: Should these be reduced to 2D? eg. remove the z axis?
         # rg = (m * rg + self.mp * self.rp) / (m + self.mp)  # CG corrected for payload (recomment if using payload)
         self.S_rg = Smtrx(self.rg)  # p. 24 TODO 3DOF version?
-        # self.H_rg = Hmtrx(self.rg)  # Sytem transformation matrix p.669 TODO 3DOF version
         # self.S_rp = Smtrx(self.rp)  # Recomment if using payload
 
-        # R44 = 0.4 * self.B  # radii of gyration (m) p. 87 with respect to CG
-        # R55 = 0.25 * self.L
         R66 = 0.25 * self.L
         T_sway = 1.0        # time constant in sway (s) p. 124 (2011)
         T_yaw = 1.0         # time constant in yaw (s)
@@ -134,9 +131,7 @@ class sammi:
         # Inertia dyadic, volume displacement and draft
         nabla = (m + self.mp) / rho  # volume 
         self.T = nabla / (2 * Cb_pont * self.B_pont * self.L)  # draft
-        # Ig_CG = m * np.diag(np.array([R44 ** 2, R55 ** 2, R66 ** 2]))  # Inertia dyadic about the CG p. 59 TODO: Should this be 2x2?
         Iz_CG = R66 ** 2 * m
-        # self.Ig = Ig_CG - m * self.S_rg @ self.S_rg # - self.mp * self.S_rp @ self.S_rp
         Iz = Iz_CG - m * (self.S_rg @ self.S_rg)[2][2] # - self.mp * (self.S_rp @ self.S_rp)[2][2]  # TODO is there a faster way to do this?
 
         # Experimental propeller data including lever arms
@@ -147,24 +142,16 @@ class sammi:
 
         # MRB_CG = [ (m+mp) * I3  O3      (Fossen 2021, Chapter 3) . 64
         #               O3       Ig ]
-        # MRB_CG = np.zeros((6, 6))
         MRB = np.zeros((3, 3))
-        # MRB_CG[0:3, 0:3] = (m + self.mp) * np.identity(3)
         MRB[0:2, 0:2] = (m + self.mp) * np.identity(2)
-        # MRB_CG[3:6, 3:6] = self.Ig
         MRB[2][2] = Iz
         MRB[1][2] = m * self.rg[0]
         MRB[2][1] = m * self.rg[0]
-        # MRB = self.H_rg.T @ MRB_CG @ self.H_rg/
 
         # Hydrodynamic added mass (best practice) p. 116/147 TODO Find where these come from
         # Discussion on symettry and 3DOF on p. 147!
         Xudot = -0.1 * m
         Yvdot = -1.5 * m
-        # Zwdot = -1.0 * m
-        # Kpdot = -0.2 * self.Ig[0, 0]
-        # Mqdot = -0.8 * self.Ig[1, 1]
-        # Nrdot = -1.7 * self.Ig[2, 2]
         Nrdot = -1.7 * Iz
 
         # self.MA = -np.diag([Xudot, Yvdot, Zwdot, Kpdot, Mqdot, Nrdot])
@@ -191,28 +178,10 @@ class sammi:
         KM_T = KB + BM_T    # KM values The transverse distance between the keel and the metacentre p. 81
         KM_L = KB + BM_L    # The longitudinal distance between the keel and the metacentre p. 81
         KG = self.T - self.rg[2] # The distance between the keel and the centre of gravity p. 81
-        GM_T = KM_T - KG    # GM values The transverse metacentre height between the centre of gravity and the metacentre p. 74
-        GM_L = KM_L - KG    # The longitudinal metacentre height between the centre of gravity and the metacentre p. 74
-
-        # G33 = rho * self.g * (2 * Aw_pont)  # spring stiffness p. 79
-        # G44 = rho * self.g * nabla * GM_T  # p. 79
-        # G55 = rho * self.g * nabla * GM_L  # p. 79
-        # G_CF = np.diag([0, 0, G33, G44, G55, 0])  # spring stiff. matrix in CF
-        # LCF = -0.2
-        # H = Hmtrx(np.array([LCF, 0.0, 0.0]))  # transform G_CF from CF to CO
-        # self.G = H.T @ G_CF @ H
-
-        # # Natural frequencies
-        # w3 = math.sqrt(G33 / self.M[2, 2])  # p. 83
-        # w4 = math.sqrt(G44 / self.M[3, 3])  # p. 83
-        # w5 = math.sqrt(G55 / self.M[4, 4])  # p. 83
 
         # Linear damping terms (hydrodynamic derivatives) p. 150/119
         Xu = -24.4 * self.g / Umax   # specified using the maximum speed
         Yv = -self.M[1, 1]  / T_sway # specified using the time constant in sway
-        # Zw = -2 * 0.3 * w3 * self.M[2, 2]  # specified using relative damping
-        # Kp = -2 * 0.2 * w4 * self.M[3, 3]
-        # Mq = -2 * 0.4 * w5 * self.M[4, 4]
         Nr = -self.M[2, 2] / T_yaw  # specified by the time constant T_yaw
 
         # self.D = -np.diag([Xu, Yv, Zw, Kp, Mq, Nr])  # Linear damping for suface vessels p. 150
@@ -244,19 +213,11 @@ class sammi:
         u_c = self.V_c * math.cos(self.beta_c - eta[2])  # current surge vel. (beta_c = current direction and eta[5] = yaw angle)
         v_c = self.V_c * math.sin(self.beta_c - eta[2])  # current sway vel.
 
-        # nu_c = np.array([u_c, v_c, 0, 0, 0, 0], float)  # current velocity vector
-        nu_c = np.array([u_c, v_c, 0], float)  # current velocity vector (3DOF version)
-        # Dnu_c = np.array([nu[5]*v_c, -nu[5]*u_c, 0, 0, 0, 0],float) # derivative
-        Dnu_c = np.array([0, 0, 0], float)  # derivative (3DOF version)
+        nu_c = np.array([u_c, v_c, 0], float)  # current velocity vector 
+        Dnu_c = np.array([0, 0, 0], float)  # derivative 
         nu_r = nu - nu_c  # relative velocity vector
 
         # Rigid body and added mass Coriolis and centripetal matrices
-        # CRB_CG = [ (m+mp) * Smtrx(nu2)          O3   (Fossen 2021, Chapter 6)
-        #              O3                   -Smtrx(Ig*nu2)  ]
-        # CRB_CG = np.zeros((6, 6))
-        # CRB_CG[0:3, 0:3] = self.m_total * Smtrx(nu[3:6])
-        # CRB_CG[3:6, 3:6] = -Smtrx(np.matmul(self.Ig, nu[3:6]))  # p. 68
-        # CRB = self.H_rg.T @ CRB_CG @ self.H_rg  # transform CRB from CG to CO
         CRB = np.zeros((3, 3))
         CRB = np.array([[0, -self.m_total * nu[2], -self.m_total * self.rg[2] * nu[2]],
                         [self.m_total * nu[2], 0, 0],
@@ -268,18 +229,9 @@ class sammi:
         # CA[5, 1] = 0 
         # CA[0, 5] = 0
         # CA[1, 5] = 0
-
         C = CRB + CA
 
-        # Payload force and moment expressed in BODY
-        # R = Rzyx(eta[3], eta[4], eta[5])
-        # f_payload = np.matmul(R.T, np.array([0, 0, self.mp * self.g], float))              
-        # m_payload = np.matmul(self.S_rp, f_payload)
-        # g_0 = np.array([ f_payload[0],f_payload[1],f_payload[2], 
-        #                  m_payload[0],m_payload[1],m_payload[2] ])  # g_0 is optional and for ballast systems/water tanks (p. 15)
-
         # Control forces and moments - with propeller revolution saturation
-        # Note Otter has a thruster on each pontoon plus a big one in the middle! p. 229
         thrust = np.zeros(2)
         for i in range(0, 2):
             n[i] = sat(n[i], self.n_min, self.n_max)  # saturation, physical limits
@@ -307,10 +259,7 @@ class sammi:
         sum_tau = (
             tau
             + tau_damp
-            # + tau_crossflow
             - np.matmul(C, nu_r)
-            # - np.matmul(self.G, eta)
-            # + g_0
         )
 
         nu_dot = Dnu_c + np.matmul(self.Minv, sum_tau)  # USV dynamics
