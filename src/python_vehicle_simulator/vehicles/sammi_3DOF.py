@@ -122,8 +122,8 @@ class sammi:
         Umax = 1.5   # max forward speed (m/s)
 
         # Data for one pontoon
-        self.B_pont = 0.076  # beam of one pontoon (m)
-        y_pont = 0.348      # distance from centerline to waterline centroid (m) (distance between centre of hulls / 2)
+        self.B_pont = 0.3  # beam of one pontoon (m)
+        y_pont = 0.7      # distance from centerline to waterline centroid (m) (distance between centre of hulls / 2)
         Cw_pont = 0.98      # waterline area coefficient (-) (see notebook)
         Cb_pont = 0.785       # block coefficient, computed from m = 55 kg (see notebook)
 
@@ -134,10 +134,13 @@ class sammi:
         Iz = Iz_CG - m * (self.S_rg @ self.S_rg)[2][2] # - self.mp * (self.S_rp @ self.S_rp)[2][2]  # TODO is there a faster way to do this?
 
         # Experimental propeller data including lever arms
-        self.k_pos = 24.12 / (rho * (0.076 ** 4) * abs(40.93) * 40.93)  # Calculated at 12V, 1800 PWM (max 1900) (see notebook)
-        self.k_neg = 19.12 / (rho * (0.076 ** 4) * abs(40.95) * 40.95)  # Calculated at 12V, 1200 PWM (min 1100) (see notebook)
-        self.n_max = 313.635667  # max. prop. rev. (rad/s)
-        self.n_min = -311.645991  # min. prop. rev. (rad/s)
+        self.prop_diameter = 0.076
+        self.k_pos = 24.12 / (rho * (self.prop_diameter ** 4) * abs(40.93) * 40.93)  # Calculated at 12V, 1800 PWM (max 1900) (see notebook)
+        self.k_neg = 19.12 / (rho * (self.prop_diameter ** 4) * abs(40.95) * 40.95)  # Calculated at 12V, 1200 PWM (min 1100) (see notebook)
+        # self.n_max = 313.635667  # max. prop. rev. (rad/s)
+        self.n_max = 49.9 # rps
+        # self.n_min = -311.645991  # min. prop. rev. (rad/s)
+        self.n_min = -49.6 # rps
 
         # MRB_CG = [ (m+mp) * I3  O3      (Fossen 2021, Chapter 3) . 64
         #               O3       Ig ]
@@ -194,7 +197,12 @@ class sammi:
         # SAMMI Control
         speed_pid = [200, 200, 0]
         ang_pid = [150, 0.01, 120]
-        self.vel_pid = pid.PID(speed_pid[0], speed_pid[1], speed_pid[2], clamp=313)
+        if nu[0] != 0:
+            # integral_start = nu[0]/2
+            integral_start = 0  # TODO
+        else:
+            integral_start = 0
+        self.vel_pid = pid.PID(speed_pid[0], speed_pid[1], speed_pid[2], clamp=313, starting_integral=integral_start)
         self.ang_pid = pid.PID(ang_pid[0], ang_pid[1], ang_pid[2], clamp=313)
         self.setpoints = [des_vel, self.ref]
 
@@ -235,9 +243,9 @@ class sammi:
         for i in range(0, 2):
             n[i] = sat(n[i], self.n_min, self.n_max)  # saturation, physical limits
             if n[i] > 0:  # positive thrust (Why are there different K_ts for forward/reverse)
-                thrust[i] = 997 * np.power(0.076, 4) * self.k_pos * abs(n[i]) * n[i] * 2
+                thrust[i] = 1025 * np.power(self.prop_diameter, 4) * self.k_pos * abs(n[i]) * n[i] * 2
             else:  # negative thrust
-                thrust[i] = 997 * np.power(0.076, 4) * self.k_neg * abs(n[i]) * n[i] * 2
+                thrust[i] = 1125 * np.power(self.prop_diameter, 4) * self.k_neg * abs(n[i]) * n[i] * 2
         # Control forces and moments
         # Mousazadeh et al. thrust (Eq. 5)
         thrust_distance = 1.4  # distance between the two thrusters (m)
@@ -260,7 +268,6 @@ class sammi:
             + tau_damp
             - np.matmul(C, nu_r)
         )
-
         nu_dot = Dnu_c + np.matmul(self.Minv, sum_tau)  # USV dynamics
         n_dot = (u_control - n) / self.T_n  # propeller dynamics
 
@@ -286,27 +293,23 @@ class sammi:
                                       np.deg2rad(self.setpoints[1]))
         ang_val = self.ang_pid.update(ang_dif, dt)
 
-        if np.rad2deg(bearing) > 90:
-            pass
-
         return self.thruster_control(vel_val, ang_val)
-        # return np.array([313, 313], float)
 
     def thruster_control(self, vel_val, ang_val):
         vel_r = (vel_val - ang_val) / 2
         vel_l = (vel_val + ang_val) / 2
         return np.array([vel_l, vel_r], float)
 
-def simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time=0.01, tracking=["final"]):
+def simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time=0.01, tracking=[]):
     sample_count = int(time/sample_time)
     vehicle = sammi(r=des_ang, des_vel=des_vel, sample_time=sample_time, nu=initial_velocities)
     eta = initial_state
     nu = vehicle.nu
     u_actual = vehicle.u_actual
     if "eta" in tracking:
-        eta_hist = np.zeros((sample_count, 6))
+        eta_hist = np.zeros((sample_count, 3))
     if "nu" in tracking:
-        nu_hist = np.zeros((sample_count, 6))
+        nu_hist = np.zeros((sample_count, 3))
     if "u_actual" in tracking:
         u_actual_hist = np.zeros((sample_count, 2))
 
@@ -330,8 +333,8 @@ def simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_t
         return_data.append(nu_hist)
     if "u_actual" in tracking:
         return_data.append(u_actual_hist)
-    if "final" in tracking:
-        return_data.append([eta, nu, u_actual])
+
+    return_data.append([eta, nu, u_actual])
     return return_data
 
 def Rzyx(psi):
@@ -430,7 +433,7 @@ if __name__ == "__main__":
     # initial_state = np.array([0, 0, 0, 0, 0, np.deg2rad(90)], float)
     initial_state = np.array([0, 0, np.deg2rad(90)], float)
     # initial_velocities = np.array([0, 0, 0, 0, 0, 0], float)
-    initial_velocities = np.array([0, 0, 0], float)
+    initial_velocities = np.array([0.6, 0, 0], float)
     sample_time = 0.01
     tracking = ["eta"]
     if timer == "y":
@@ -440,7 +443,7 @@ if __name__ == "__main__":
         print("Average time per simulation second: ", (total_time/iterations)/time)
     else:
         data = simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking)
-        [eta, nu, u_actual] = data[0]
+        [eta, nu, u_actual] = data[-1]
         print("Simulation complete", eta, nu, u_actual)
 
 

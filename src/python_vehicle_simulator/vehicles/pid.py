@@ -7,13 +7,13 @@ class PID:
         Kd: The derivative part gain.
     """
 
-    def __init__(self, Kp=1, Ki=1, Kd=1, clamp=160):
+    def __init__(self, Kp=1, Ki=1, Kd=1, clamp=160, starting_integral=0):
         """Setup PID gains and class variables."""
         self.Kp = Kp
         self.Ki = Ki
         self.Kd = Kd
         self.clamp = clamp
-        self.integral = 0
+        self.integral = starting_integral
         self.prev_error = None
         self.value = 0
 

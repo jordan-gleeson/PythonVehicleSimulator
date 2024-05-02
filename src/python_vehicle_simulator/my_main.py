@@ -22,10 +22,10 @@ def main():
 
     # Initial state vectors
     if DOF == 6:
-        vehicle = sammi_6DOF.sammi(r=45, des_vel=0.6, sample_time=sampleTime, nu=np.array([0, 0, 0, 0, 0, 0], float)) 
+        vehicle = sammi_6DOF.sammi(r=0, des_vel=0.5, sample_time=sampleTime, nu=np.array([0, 0, 0, 0, 0, 0], float)) 
         eta = np.array([0, 0, 0, 0, 0, 0], float)    # position/attitude, user editable
     if DOF == 3:
-        vehicle = sammi_3DOF.sammi(r=45, des_vel=0.6, sample_time=sampleTime, nu=np.array([0, 0, 0], float))
+        vehicle = sammi_3DOF.sammi(r=0, des_vel=0.5, sample_time=sampleTime, nu=np.array([0, 0, 0], float))
         eta = np.array([0, 0, 0], float)
     nu = vehicle.nu                              # velocity, defined by vehicle class
     u_actual = vehicle.u_actual                  # actual inputs, defined by vehicle class
@@ -48,9 +48,6 @@ def main():
         # Propagate vehicle and attitude dynamics
         [nu, u_actual]  = vehicle.dynamics(eta,nu,u_actual,u_control,sampleTime)
         eta = sammi_3DOF.attitudeEuler(eta,nu,sampleTime)
-        if eta[1] != 0:
-            pass
-        print(eta)
 
     # Store simulation time vector
     simTime = np.arange(start=0, stop=t+sampleTime, step=sampleTime)[:, None]

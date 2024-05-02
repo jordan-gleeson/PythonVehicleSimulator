@@ -75,7 +75,7 @@ def plotVehicleStates(simTime, simData, figNo, DOF=6):
     plt.figure(
         figNo, figsize=(cm2inch(figSize1[0]), cm2inch(figSize1[1])), dpi=dpiValue
     )
-    plt.grid()
+    # plt.grid()
 
     plt.subplot(3, 3, 1)
     plt.plot(y, x)
