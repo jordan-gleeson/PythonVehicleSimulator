@@ -3,34 +3,29 @@
 """
 otter.py: 
     Class for the Maritime Robotics Otter USV, www.maritimerobotics.com. 
-    The length of the USV is L = 2.0 m. The constructors are:
-
-    otter()                                          
-        Step inputs for propeller revolutions n1 and n2
+    The constructors are:
         
-    otter('headingAutopilot',psi_d,V_current,beta_current,tau_X)  
+    sammi('headingAutopilot',psi_d,V_current,beta_current,tau_X)  
        Heading autopilot with options:
           psi_d: desired yaw angle (deg)
           V_current: current speed (m/s)
           beta_c: current direction (deg)
           tau_X: surge force, pilot input (N)
+          des_vel: desired velocity (m/s)
+          sample_time: sample time (s)
+          nu: initial velocity vector [u v w p q r] (m/s, rad/s)
         
 Methods:
     
-[nu,u_actual] = dynamics(eta,nu,u_actual,u_control,sampleTime) returns 
-    nu[k+1] and u_actual[k+1] using Euler's method. The control inputs are:
+    [nu,u_actual] = dynamics(eta,nu,u_actual,u_control,sampleTime) returns 
+        nu[k+1] and u_actual[k+1] using Euler's method. The control inputs are:
 
     u_control = [ n1 n2 ]' where 
         n1: propeller shaft speed, left (rad/s)
         n2: propeller shaft speed, right (rad/s)
 
-u = headingAutopilot(eta,nu,sampleTime) 
-    PID controller for automatic heading control based on pole placement.
-
-u = stepInput(t) generates propeller step inputs.
-
-[n1, n2] = controlAllocation(tau_X, tau_N)     
-    Control allocation algorithm.
+    u = update(eta, dt)
+        PID controller for velocity and angle control.
     
 References: 
   T. I. Fossen (2021). Handbook of Marine Craft Hydrodynamics and Motion 
@@ -50,14 +45,16 @@ import timeit
 # Class Vehicle
 class sammi:
     """
-    otter()                                           Propeller step inputs
-    otter('headingAutopilot',psi_d,V_c,beta_c,tau_X)  Heading autopilot
+    sammi('',psi_d,V_c,beta_c,tau_X,des_vel,sample_time,nu)  Heading autopilot
     
     Inputs:
         psi_d: desired heading angle (deg)
         V_c: current speed (m/s)
         beta_c: current direction (deg)
-        tau_X: surge force, pilot input (N)        
+        tau_X: surge force, pilot input (N)   
+        des_vel: desired velocity (m/s)
+        sample_time: sample time (s)
+        nu: initial velocity vector [u v w p q r] (m/s, rad/s)     
     """
 
     def __init__(
@@ -210,7 +207,7 @@ class sammi:
     def dynamics(self, eta, nu, u_actual, u_control, sampleTime):
         """
         [nu,u_actual] = dynamics(eta,nu,u_actual,u_control,sampleTime) integrates
-        the Otter USV equations of motion using Euler's method.
+        the SAMMI USV equations of motion using Euler's method.
         """
 
         # Input vector
@@ -279,10 +276,18 @@ class sammi:
         u_actual = np.array(n, float)
         return nu, u_actual
 
-    def set_setpoint(self, vel, ang):
-        self.setpoints = [vel, ang]
-
     def update(self, eta, dt):
+        """
+        Updates the control of the vehicle based on the current state.
+
+        Args:
+            eta (list): The current state of the vehicle, including position and heading.
+            dt (float): The time step for the update.
+
+        Returns:
+            tuple: The control signals for the thrusters.
+
+        """
         velocity = math.sqrt(self.nu[0] ** 2 + self.nu[1] ** 2) 
         bearing = eta[2]
 
@@ -296,11 +301,44 @@ class sammi:
         return self.thruster_control(vel_val, ang_val)
 
     def thruster_control(self, vel_val, ang_val):
+        """
+        Controls the thrusters of the vehicle based the output of the PIDs.
+
+        Parameters:
+        - vel_val (float): The velocity PID output.
+        - ang_val (float): The angle PID output.
+
+        Returns:
+        - numpy.ndarray: An array containing the left and right thruster values.
+
+        """
         vel_r = (vel_val - ang_val) / 2
         vel_l = (vel_val + ang_val) / 2
         return np.array([vel_l, vel_r], float)
 
 def simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time=0.01, tracking=[]):
+    """
+    Simulates the behavior of a vehicle over a given time period.
+
+    Args:
+        initial_state (list): The initial state of the vehicle, represented as [x, y, yaw].
+        initial_velocities (list): The initial velocities of the vehicle, represented as [u, v, w].
+        des_ang (float): The desired angle of the vehicle.
+        des_vel (float): The desired velocity of the vehicle.
+        time (float): The total simulation time.
+        sample_time (float, optional): The time interval between each sample. Defaults to 0.01.
+        tracking (list, optional): The variables to track during the simulation. Can include "eta" (vehicle state),
+            "nu" (vehicle velocities), and "u_actual" (actual control inputs). Defaults to an empty list.
+
+    Returns:
+        list: A list containing the tracked variables over the simulation time. The variables in the list
+            are determined by the `tracking` parameter. The last element of the list contains
+            the final state of the vehicle, represented as [x, y, yaw], the final velocities of the vehicle,
+            represented as [u, v, w], and the final actual control inputs of the vehicle, represented as [n1, n2].
+            e.g. tracking = ["eta, "nu", "u_actual"]
+                 return = [eta_hist, nu_hist, u_actual_hist, [eta, nu, u_actual]]
+    """
+
     sample_count = int(time/sample_time)
     vehicle = sammi(r=des_ang, des_vel=des_vel, sample_time=sample_time, nu=initial_velocities)
     eta = initial_state
