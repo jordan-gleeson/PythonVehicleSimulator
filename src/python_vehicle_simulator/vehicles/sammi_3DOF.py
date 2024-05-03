@@ -213,19 +213,21 @@ class sammi:
         # Input vector
         n = np.array([u_actual[0], u_actual[1]])
 
-        # Current velocities
-        u_c = self.V_c * math.cos(self.beta_c - eta[2])  # current surge vel. (beta_c = current direction and eta[5] = yaw angle)
-        v_c = self.V_c * math.sin(self.beta_c - eta[2])  # current sway vel.
-
-        nu_c = np.array([u_c, v_c, 0], float)  # current velocity vector 
+        # Current velocities (Recomment if current != 0)
+        # u_c = self.V_c * math.cos(self.beta_c - eta[2])  # current surge vel. (beta_c = current direction and eta[5] = yaw angle)
+        # v_c = self.V_c * math.sin(self.beta_c - eta[2])  # current sway vel.
+        # nu_c = np.array([u_c, v_c, 0], float)  # current velocity vector 
         Dnu_c = np.array([0, 0, 0], float)  # derivative 
-        nu_r = nu - nu_c  # relative velocity vector
+
+        nu_r = nu # - nu_c  # relative velocity vector
 
         # Rigid body and added mass Coriolis and centripetal matrices
-        CRB = np.zeros((3, 3))
-        CRB = np.array([[0, -self.m_total * nu[2], -self.m_total * self.rg[2] * nu[2]],
-                        [self.m_total * nu[2], 0, 0],
-                        [self.m_total * self.rg[2] * nu[2], 0, 0]], float)
+        # CRB = np.zeros((3, 3))
+        mr = self.m_total * nu[2]
+        mxgr = mr * self.rg[2]
+        CRB = np.array([[0,    -mr, -mxgr],
+                        [mr,   0,   0],
+                        [mxgr, 0,   0]], float)
 
         CA = m2c(self.MA, nu_r)  # p. 156
         # Uncomment to cancel the Munk moment in yaw, if stability problems
@@ -451,34 +453,44 @@ def sat(x, x_min, x_max):
     return x    
 
 if __name__ == "__main__":
-    try:
-        timer = input("Do you want to time the simulation? (y/n): ")
-        if timer == "n":
-            des_vel = float(input("Enter a desired velocity: "))
-            des_ang = float(input("Enter a desired angle: "))
-            time = float(input("Enter a time for the simulation: "))
-        elif timer == "y":
-            des_vel = 0.5
-            des_ang = 0
-            time = 5
-        else:
-            print("Invalid input. Please enter 'y' or 'n'.")
-            exit()
-    except ValueError:
-        print("Invalid input. Please enter valid numeric values for desired velocity and angle.")
-        exit()
+    # try:
+    #     timer = input("Do you want to time the simulation? (y/n): ")
+    #     if timer == "n":
+    #         des_vel = float(input("Enter a desired velocity: "))
+    #         des_ang = float(input("Enter a desired angle: "))
+    #         time = float(input("Enter a time for the simulation: "))
+    #     elif timer == "y":
+    #         des_vel = 0.5
+    #         des_ang = 0
+    #         time = 5
+    #     else:
+    #         print("Invalid input. Please enter 'y' or 'n'.")
+    #         exit()
+    # except ValueError:
+    #     print("Invalid input. Please enter valid numeric values for desired velocity and angle.")
+    #     exit()
+    des_vel = 0.5
+    des_ang = 0
+    time = 5
+    timer = "p"
 
     # initial_state = np.array([0, 0, 0, 0, 0, np.deg2rad(90)], float)
     initial_state = np.array([0, 0, np.deg2rad(90)], float)
     # initial_velocities = np.array([0, 0, 0, 0, 0, 0], float)
-    initial_velocities = np.array([0.6, 0, 0], float)
+    initial_velocities = np.array([0, 0, 0], float)
     sample_time = 0.01
-    tracking = ["eta"]
+    tracking = []
     if timer == "y":
-        iterations = 1000
+        iterations = 100
         total_time = timeit.timeit("simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking)", setup="from __main__ import simulate, initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking", number=iterations)
         print("Average time for {} iterations: ".format(iterations), total_time/iterations)
         print("Average time per simulation second: ", (total_time/iterations)/time)
+    elif timer == "p":
+        iterations = 1000
+        for i in range(iterations):
+            data = simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking)
+            # print(initial_state)
+        # print(data)
     else:
         data = simulate(initial_state, initial_velocities, des_ang, des_vel, time, sample_time, tracking)
         [eta, nu, u_actual] = data[-1]
